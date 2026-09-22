@@ -13,7 +13,7 @@ import numpy as np
 from scipy.signal import butter, fftconvolve, lfilter, sosfilt
 
 SR = 48000
-DUR = 45.0
+DUR = 55.0
 N = int(SR * DUR)
 rng = np.random.default_rng(7)
 
@@ -61,12 +61,12 @@ CHORDS = {
     "Bm": [47, 54, 59, 62, 66],
     "G": [43, 50, 55, 59, 62],
 }
-PROG = ["D", "A", "Bm", "G"] * 3 + ["D"]  # 13 bars ~ 44.6 s
+PROG = ["D", "A", "Bm", "G"] * 3 + ["D", "A", "G", "D"]  # 16 bars ~ 54.9 s
 
 
 def section_gain(t):
-    """Overall musical intensity curve across the 45 s."""
-    return np.interp(t, [0, 8, 10, 20, 30, 36, 40, 45], [0.35, 0.55, 0.7, 0.8, 1.0, 1.0, 0.7, 0.0])
+    """Overall musical intensity curve across the piece."""
+    return np.interp(t, [0, 6, 18, 30, 40, 46, 50, 55], [0.4, 0.6, 0.8, 0.9, 1.0, 0.85, 0.7, 0.0])
 
 
 # ---------------------------------------------------------------- instruments
@@ -134,6 +134,9 @@ melody = {
     10: [(0, 85), (2, 81)],
     11: [(0, 78), (2, 83)],
     12: [(0, 78), (1, 81), (2, 86)],
+    13: [(0, 76), (2, 73)],
+    14: [(0, 74), (1, 71), (2, 74), (3, 78)],
+    15: [(0, 78), (2, 81)],
 }
 
 for bar, name in enumerate(PROG):
@@ -168,7 +171,7 @@ for bar, name in enumerate(PROG):
 
 # Final ringing D chord.
 for m in [38, 50, 57, 62, 66, 69, 74]:
-    add(music, piano_note(m, dur=6, vel=0.5), 12 * BAR + BAR * 0.99, pan=0.1)
+    add(music, piano_note(m, dur=6, vel=0.5), 15 * BAR, pan=0.1)
 
 
 # Reverb: synthetic exponentially decaying stereo impulse response.

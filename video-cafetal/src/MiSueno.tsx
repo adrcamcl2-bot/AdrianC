@@ -6,7 +6,9 @@ import {
   Easing,
   Img,
   interpolate,
+  OffthreadVideo,
   random,
+  Sequence,
   staticFile,
   useCurrentFrame,
   useVideoConfig,
@@ -20,7 +22,7 @@ loadFont({
 });
 
 const FPS = 30;
-const SECONDS = 45;
+const SECONDS = 55;
 
 // Source image size and key points in it (pixels).
 const IMG_W = 1536;
@@ -45,27 +47,114 @@ export const MiSuenoComposition = () => {
   );
 };
 
+// ------------------------------------------------------------------ aerials
+
+// Drone shots taken from the reference video (public/aereas.mp4, 24 fps).
+// Ranges avoid the burned-in title (~7-9.9 s) of the source.
+type Clip = { from: number; to: number; rate: number };
+const CLIPS: Clip[] = [
+  { from: 0.0, to: 4.0, rate: 0.7 }, // low flight over the coffee bushes
+  { from: 5.0, to: 6.7, rate: 0.7 }, // aerial rows with clouds
+  { from: 10.0, to: 12.0, rate: 0.7 }, // aerial rows toward the sun
+  { from: 12.05, to: 14.3, rate: 0.7 }, // pickers harvesting
+  { from: 14.4, to: 20.0, rate: 0.8 }, // misty valley, wide pull-back
+];
+const XFADE = 0.8;
+
+const CLIP_TIMES = CLIPS.reduce<{ start: number; dur: number }[]>(
+  (acc, c, i) => {
+    const dur = (c.to - c.from) / c.rate;
+    const start = i === 0 ? 0 : acc[i - 1].start + acc[i - 1].dur - XFADE;
+    return [...acc, { start, dur }];
+  },
+  [],
+);
+const AERIAL_END =
+  CLIP_TIMES[CLIP_TIMES.length - 1].start +
+  CLIP_TIMES[CLIP_TIMES.length - 1].dur;
+// The drone "returns" to the farmer in the still image.
+const IMG_XFADE = 1.2;
+const IMG_START = AERIAL_END - IMG_XFADE;
+
+const AerialClip: React.FC<{ clip: Clip; dur: number; first: boolean }> = ({
+  clip,
+  dur,
+  first,
+}) => {
+  const frame = useCurrentFrame();
+  const t = frame / FPS;
+  const opacity = first
+    ? 1
+    : interpolate(t, [0, XFADE], [0, 1], {
+        extrapolateLeft: "clamp",
+        extrapolateRight: "clamp",
+      });
+  // Crop 20 % toward the top-left to hide the source watermark in the
+  // bottom-right corner, plus a slow push for extra drone motion.
+  const scale = interpolate(t, [0, dur], [1.2, 1.27]);
+  return (
+    <AbsoluteFill style={{ opacity, overflow: "hidden" }}>
+      <AbsoluteFill
+        style={{ transform: `scale(${scale})`, transformOrigin: "20% 30%" }}
+      >
+        <OffthreadVideo
+          src={staticFile("aereas.mp4")}
+          trimBefore={Math.round(clip.from * FPS)}
+          playbackRate={clip.rate}
+          muted
+          style={{
+            width: "100%",
+            height: "100%",
+            objectFit: "cover",
+            // Warm the cooler morning footage toward the still's golden grade.
+            filter:
+              "sepia(0.22) saturate(1.18) contrast(1.07) brightness(0.96)",
+          }}
+        />
+      </AbsoluteFill>
+      <AbsoluteFill
+        style={{
+          mixBlendMode: "overlay",
+          background:
+            "linear-gradient(to bottom, rgba(255,150,50,0.35) 0%, rgba(255,130,40,0.15) 60%, rgba(90,50,10,0.2) 100%)",
+        }}
+      />
+    </AbsoluteFill>
+  );
+};
+
+const Aerials: React.FC = () => (
+  <>
+    {CLIPS.map((clip, i) => (
+      <Sequence
+        key={i}
+        from={Math.round(CLIP_TIMES[i].start * FPS)}
+        durationInFrames={Math.ceil(CLIP_TIMES[i].dur * FPS)}
+      >
+        <AerialClip clip={clip} dur={CLIP_TIMES[i].dur} first={i === 0} />
+      </Sequence>
+    ))}
+  </>
+);
+
 // ------------------------------------------------------------------ camera
 
 type Key = { t: number; x: number; y: number; z: number; r: number };
 
-// Virtual drone path over the image (t in seconds, x/y source px,
-// z zoom relative to a full-frame cover fit, r roll in degrees).
+// Virtual drone path over the still (t in seconds from IMG_START, x/y
+// source px, z zoom relative to a full-frame cover fit, r roll in degrees).
 const PATH: Key[] = [
-  // 0-10 s: take-off from the coffee leaves, rising toward the misty hills.
-  { t: 0, x: 1180, y: 830, z: 2.1, r: 0 },
-  { t: 5, x: 1120, y: 640, z: 1.9, r: -0.6 },
-  { t: 10, x: 1060, y: 450, z: 1.7, r: 0 },
-  // 10-20 s: fly over the plantation rows and the picker.
-  { t: 14, x: 1290, y: 580, z: 1.85, r: 1.2 },
-  { t: 20, x: 760, y: 560, z: 1.65, r: -1 },
-  // 20-30 s: panoramic sweep of the whole farm.
-  { t: 25, x: 720, y: 500, z: 1.18, r: 0 },
-  { t: 30, x: 880, y: 470, z: 1.14, r: 0.4 },
-  // 30-35 s: rise and turn to reveal the scale of the landscape.
-  { t: 35, x: 960, y: 400, z: 1.4, r: 4 },
-  // 35-45 s: slow epic pull-back to the full view.
-  { t: 45, x: 768, y: 512, z: 1.0, r: 0 },
+  // Arrive from the aerials over the valley.
+  { t: 0, x: 900, y: 470, z: 1.15, r: -1 },
+  { t: 6, x: 1040, y: 420, z: 1.45, r: 1.5 },
+  // Sweep back over the fields toward the starting point.
+  { t: 12, x: 720, y: 520, z: 1.4, r: -1 },
+  // Reach the farmer and settle on his profile.
+  { t: 18, x: 480, y: 400, z: 2.0, r: 0 },
+  { t: 23, x: 440, y: 370, z: 2.25, r: 0 },
+  // Epic pull-back to the full view for the closing message.
+  { t: 29, x: 640, y: 480, z: 1.35, r: 0 },
+  { t: SECONDS - IMG_START, x: 768, y: 512, z: 1.0, r: 0 },
 ];
 
 // Cubic Hermite spline through keyframes (non-uniform Catmull-Rom),
@@ -99,13 +188,12 @@ const sample = (t: number, key: "x" | "y" | "z" | "r") => {
 const useCamera = () => {
   const frame = useCurrentFrame();
   const { fps, width, height } = useVideoConfig();
-  const t = frame / fps;
+  const t = Math.max(0, frame / fps - IMG_START);
 
   const cover = Math.max(width / IMG_W, height / IMG_H);
   // Gentle drone drift on top of the planned path.
   const drift = (seed: number, amp: number) =>
-    amp *
-    (Math.sin(t * 0.7 + seed) * 0.6 + Math.sin(t * 1.9 + seed * 3) * 0.4);
+    amp * (Math.sin(t * 0.7 + seed) * 0.6 + Math.sin(t * 1.9 + seed * 3) * 0.4);
 
   const rDeg = sample(t, "r") + drift(1, 0.25);
   const rad = (Math.abs(rDeg) * Math.PI) / 180;
@@ -141,7 +229,9 @@ const Mist: React.FC = () => {
     { y: [520, 720], count: 6, alpha: 0.16, h: [80, 140] }, // over the fields
   ];
   return (
-    <AbsoluteFill style={{ mixBlendMode: "screen", width: IMG_W, height: IMG_H }}>
+    <AbsoluteFill
+      style={{ mixBlendMode: "screen", width: IMG_W, height: IMG_H }}
+    >
       {bands.flatMap((b, bi) =>
         new Array(b.count).fill(0).map((_, i) => {
           const id = `${bi}-${i}`;
@@ -247,7 +337,7 @@ const Dust: React.FC = () => {
 
 // ------------------------------------------------------------------ title
 
-const TEXT_START = 37 * FPS;
+const TEXT_START = Math.round(46.5 * FPS);
 const TEXT_END = SECONDS * FPS;
 
 // Golden particles spiralling into the centre as the title forms.
@@ -297,7 +387,7 @@ const VortexTitle: React.FC<{ text: string }> = ({ text }) => {
   const local = frame - TEXT_START;
   if (local < -20) return null;
 
-  const fadeOut = interpolate(frame, [TEXT_END - 45, TEXT_END - 5], [1, 0], {
+  const fadeOut = interpolate(frame, [TEXT_END - 20, TEXT_END], [1, 0], {
     extrapolateLeft: "clamp",
     extrapolateRight: "clamp",
   });
@@ -369,30 +459,40 @@ export const MiSueno: React.FC<Props> = ({ text }) => {
     [0, 1, 1, 0],
     { extrapolateLeft: "clamp", extrapolateRight: "clamp" },
   );
+  const stillIn = interpolate(
+    frame / FPS,
+    [IMG_START, IMG_START + IMG_XFADE],
+    [0, 1],
+    { extrapolateLeft: "clamp", extrapolateRight: "clamp" },
+  );
 
   return (
     <AbsoluteFill style={{ backgroundColor: "#000" }}>
       <AbsoluteFill style={{ opacity: fade }}>
-        <div
-          style={{
-            position: "absolute",
-            width: IMG_W,
-            height: IMG_H,
-            transformOrigin: "0 0",
-            ...camera,
-          }}
-        >
-          <Img
-            src={staticFile("cafetal.webp")}
+        <Aerials />
+
+        <AbsoluteFill style={{ opacity: stillIn }}>
+          <div
             style={{
+              position: "absolute",
               width: IMG_W,
               height: IMG_H,
-              filter: "saturate(1.08) contrast(1.04)",
+              transformOrigin: "0 0",
+              ...camera,
             }}
-          />
-          <SunLight />
-          <Mist />
-        </div>
+          >
+            <Img
+              src={staticFile("cafetal.webp")}
+              style={{
+                width: IMG_W,
+                height: IMG_H,
+                filter: "saturate(1.08) contrast(1.04)",
+              }}
+            />
+            <SunLight />
+            <Mist />
+          </div>
+        </AbsoluteFill>
 
         <Dust />
 
